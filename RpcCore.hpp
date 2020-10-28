@@ -3,6 +3,7 @@
 #include "src/Connection.hpp"
 #include "src/Dispose.hpp"
 #include "src/Message.hpp"
+#include "src/MessageJson.hpp"
 #include "src/Dispose.hpp"
 #include "src/Request.hpp"
 #include "src/Rpc.hpp"

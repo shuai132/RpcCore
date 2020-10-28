@@ -4,35 +4,8 @@
 
 namespace RpcCoreTest {
 
-/**
- * 用户命令类型定义
- * 支持两种形式:
- * 1. int32_t 最佳性能 系统占用<0的范围
- * 2. std::string 便于使用 系统占用"RpcCore/"开头的字符串
- */
-namespace AppMsg {
-using namespace RpcCore;
-
-#ifdef RpcCore_USE_INT_CMD_TYPE
-const CmdType CMD1 = 1;
-const CmdType CMD2 = 2;
-const CmdType CMD3 = 3;
-#else
-const CmdType CMD1 = "CMD1";
-const CmdType CMD2 = "CMD2";
-const CmdType CMD3 = "CMD3";
-#endif
-}
-
-struct TestStruct {
-    uint8_t a;
-    uint16_t b;
-    uint32_t c;
-};
-
 void RpcTest() {
     using namespace RpcCore;
-    using String = RpcCore::String;
 
     // 回环的连接 用于测试 实际使用应为具体传输协议实现的Connection
     auto connection = std::make_shared<LoopbackConnection>();
@@ -44,120 +17,30 @@ void RpcTest() {
         // 此示例为回环的连接 不需要具体实现
     });
 
-    /**
-     * 注册和发送消息 根据使用场景不同 提供以下几种方式
-     * 注:
-     * 1. 收发类型为Message即可，可自定义序列化/反序列化。
-     * 2. 内部提供了常用的Message子类型。包括二进制数据 也可使用内部题二进制值类型。
-     * 3. send可附加超时回调和超时时间
-     */
-    {
-        const std::string TEST("Hello World");
-        String test = TEST;
-        LOGI("测试开始...");
-        LOGI("TEST: %s, test: %s", TEST.c_str(), test.c_str());
-        assert(TEST == test);
+    // 设备A 注册消息等待接收
+    rpc->subscribe<Json>("cmd_xxx", [&](const Json & msg) {
+        LOG("%s", msg.dump().c_str());
+        {
+            auto name = msg["name"].get<std::string>();
+            auto age  = msg["age"].get<int>();
+            LOG("name:%s, age:%d", name.c_str(), age);
+        }
+        {
+            std::string name = msg["name"];
+            int age  = msg["age"];
+            LOG("name:%s, age:%d", name.c_str(), age);
+        }
+    });
 
-        LOG("1. 收发消息完整测试");
-        // 在机器A上注册监听
-        rpc->subscribe<String, String>(AppMsg::CMD1, [&](const String& msg) {
-            LOGI("get AppMsg::CMD1: %s", msg.c_str());
-            assert(msg == TEST);
-            return test;
-        });
-        // 在机器B上发送请求 请求支持很多方法 可根据需求使用所需部分
-        auto request = rpc->createRequest()
-                ->cmd(AppMsg::CMD1)
-                ->msg(test)
-                ->rsp<String>([&](const String& rsp){
-                    LOGI("get rsp from AppMsg::CMD1: %s", rsp.c_str());
-                    assert(rsp == TEST);
-                })
-                ->timeout([]{
-                    LOGI("超时");
-                })
-                ->finally([](FinishType type) {
-                    LOGI("完成: type:%d", (int) type);
-                });
-        LOGI("执行请求");
-        request->call();
-        // 其他功能测试
-        LOGI("多次调用");
-        request->call();
-        LOGI("可以取消");
-        request->cancel();
-        request->call();
-        LOGI("恢复取消");
-        request->canceled(false);
-        request->call();
-        LOGI("设置target 配合Dispose");
-        Dispose dispose;
-        auto target = (void*)1;
-        request->target(target);
-        dispose.addRequest(request);
-        dispose.cancelTarget(target);
-        request->call();
-        LOGI("先创建Request");
-        Request::create()
-                ->cmd("request2")
-                ->call(rpc);
-    }
-
-    LOG("2. 值类型双端收发验证");
-    {
-        const uint64_t VALUE = 0x00001234abcd0000;
-        using UInt64_t = Raw<uint64_t>;
-
-        LOGI("TEST_VALUE: 0x%016llx", VALUE);
-        rpc->subscribe<UInt64_t, UInt64_t>(AppMsg::CMD2, [&](const UInt64_t& msg) {
-            LOGI("get AppMsg::CMD2: 0x%llx", msg.value);
-            assert(msg.value == VALUE);
-            return VALUE;
-        });
-
-        rpc->createRequest()
-                ->cmd(AppMsg::CMD2)
-                ->msg(UInt64_t(VALUE))
-                ->rsp<UInt64_t>([&](const UInt64_t& rsp) {
-                    LOGI("get rsp from AppMsg::CMD2: 0x%llx", rsp.value);
-                    assert(rsp.value == VALUE);
-                })
-                ->call();
-    }
-
-    LOG("3. 自定义的结构体类型");
-    {
-        TestStruct testStruct{1, 2, 3};
-        using RStruct = RpcCore::Struct<TestStruct>;
-
-        rpc->subscribe<RStruct, RStruct>(AppMsg::CMD3, [&](const RStruct& msg) {
-            LOGI("get AppMsg::CMD3");
-            assert(msg.value.a == 1);
-            assert(msg.value.b == 2);
-            assert(msg.value.c == 3);
-            return testStruct;
-        });
-        rpc->createRequest()
-                ->cmd(AppMsg::CMD3)
-                ->msg(RStruct(testStruct))
-                ->rsp<RStruct>([&](const RStruct& rsp) {
-                    LOGI("get rsp from AppMsg::CMD3");
-                    assert(rsp.value.a == 1);
-                    assert(rsp.value.b == 2);
-                    assert(rsp.value.c == 3);
-                })
-                ->call();
-    }
-
-    LOG("PING PONG测试");
-    {
-        rpc->ping("ping")
-                ->rsp<String>([&](const String& payload) {
-                    LOGI("get rsp from ping: %s", payload.c_str());
-                    assert(payload == "ping");
-                })
-                ->call();
-    }
+    // 设备B 发送消息
+    Json msg;
+    msg["name"] = "小明";
+    msg["age"]  = 18;
+    msg["msg"]  = "hello";
+    rpc->createRequest()
+            ->cmd("cmd_xxx")
+            ->msg(msg)
+            ->call();
 }
 
 }

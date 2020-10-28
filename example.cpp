@@ -5,10 +5,6 @@
 using namespace RpcCoreTest;
 
 int main() {
-    LOG("TypeTest...");
-    TypeTest();
-
-    LOG("RpcTest...");
     RpcTest();
 
     return 0;
